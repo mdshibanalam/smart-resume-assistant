@@ -1,7 +1,4 @@
 venv
-streamlit.run.app.py.v1.txt
-streamlit.run.app.py.v2.txt
-sample_jd_v1.txt
-sample_jd_v2.txt
-sample_jd_v3.txt
+outputs
+sample_job_descriptions
 demo_resume.pdf
