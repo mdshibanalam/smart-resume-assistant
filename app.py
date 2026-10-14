@@ -57,7 +57,12 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
             
             # Step 2: ML Model Training & Evaluation (TF-IDF Vectorizer + Cosine Similarity)
             documents = [resume_text, jd_text]
-            vectorizer = TfidfVectorizer(stop_words='english', ngram_range=(1, 2))
+            # Sublinear tf scales raw count (1 + log(tf)) to prevent word repetition bias
+            vectorizer = TfidfVectorizer(
+                stop_words='english',
+                ngram_range=(1, 1),
+                sublinear_tf=True
+            )
             tfidf_matrix = vectorizer.fit_transform(documents)
             
             # Calculate Similarity
