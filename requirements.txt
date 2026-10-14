@@ -5,3 +5,6 @@ numpy
 seaborn
 matplotlib
 pdfplumper
+pytesseract
+pdf2image
+pillow
