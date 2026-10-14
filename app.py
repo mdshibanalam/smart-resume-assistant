@@ -30,7 +30,8 @@ def extract_text_from_pdf(pdf_file):
 
 # Helper function to clean text
 def clean_text(text):
-    text = re.sub(r'[^a-zA-Z0-9\s]', ' ', text)
+    # Keep alphanumeric characters and common tech punctuation (+, #, -, /)
+    text = re.sub(r'[^a-zA-Z0-9\+\#\-\/\s]', ' ', text)
     text = text.lower()
     return " ".join(text.split())
 
