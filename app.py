@@ -28,11 +28,11 @@ def extract_text_from_pdf(pdf_file):
             extracted_text += text + " "
     return extracted_text
 
-# Helper function to clean text
+# Helper function to clean text while preserving technical symbols
 def clean_text(text):
-    # Keep alphanumeric characters and common tech punctuation (+, #, -, /)
-    text = re.sub(r'[^a-zA-Z0-9\+\#\-\/\s]', ' ', text)
     text = text.lower()
+    # Replace non-alphanumeric chars (except +, #, -, /) with space
+    text = re.sub(r'[^a-z0-9\+\#\-\/\s]', ' ', text)
     return " ".join(text.split())
 
 # Main Input Section
@@ -55,14 +55,16 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
             resume_text = clean_text(resume_raw_text)
             jd_text = clean_text(job_description)
             
-            # Step 2: ML Model Training & Evaluation (TF-IDF Vectorizer + Cosine Similarity)
+            # Step 2: ML Model Training & Evaluation with custom token_pattern
             documents = [resume_text, jd_text]
-            # Sublinear tf scales raw count (1 + log(tf)) to prevent word repetition bias
+            
             vectorizer = TfidfVectorizer(
                 stop_words='english',
+                token_pattern=r'(?u)\b[a-zA-Z0-9\+\#\-\/]{2,}\b',
                 ngram_range=(1, 1),
                 sublinear_tf=True
             )
+            
             tfidf_matrix = vectorizer.fit_transform(documents)
             
             # Calculate Similarity
@@ -104,7 +106,7 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
                 if not matching_keywords.empty:
                     st.dataframe(
                         matching_keywords[['keyword']].reset_index(drop=True),
-                        use_container_width=True
+                        width="stretch"
                     )
                 else:
                     st.write("No direct keyword overlap detected.")
@@ -114,7 +116,7 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
                 if not missing_keywords.empty:
                     st.dataframe(
                         missing_keywords[['keyword']].reset_index(drop=True),
-                        use_container_width=True
+                        width="stretch"
                     )
                 else:
                     st.write("No major skill gaps identified!")
