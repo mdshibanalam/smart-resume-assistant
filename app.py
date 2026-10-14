@@ -4,6 +4,9 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pdfplumber
+import pytesseract
+from pdf2image import convert_from_bytes
+from PIL import Image
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import re
@@ -18,20 +21,39 @@ st.set_page_config(
 st.title("📄 Smart Resume Assistant")
 st.markdown("Analyze ATS compatibility, skill gaps, and keyword alignment using Machine Learning.")
 
-# Helper function to extract text from PDF using pdfplumber
+# Helper function to extract text with OCR Fallback
 def extract_text_from_pdf(pdf_file):
     extracted_text = ""
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            if text:
-                extracted_text += text + "\n"
+    
+    # Method 1: Standard Text Extraction via pdfplumber
+    try:
+        pdf_bytes = pdf_file.read()
+        pdf_file.seek(0) # Reset stream pointer
+        
+        with pdfplumber.open(pdf_file) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    extracted_text += text + "\n"
+    except Exception as e:
+        pass
+
+    # Method 2: OCR Fallback via pytesseract if Method 1 returned no readable characters
+    if len(extracted_text.strip()) == 0:
+        st.info("ℹ️ Standard text layer not detected. Executing Optical Character Recognition (OCR)...")
+        try:
+            images = convert_from_bytes(pdf_bytes)
+            for img in images:
+                ocr_text = pytesseract.image_to_string(img)
+                extracted_text += ocr_text + "\n"
+        except Exception as ocr_err:
+            st.warning("OCR processing failed. Please re-export your PDF using MS Word or Google Docs.")
+
     return extracted_text.strip()
 
-# Helper function to clean text while preserving technical symbols
+# Helper function to clean text
 def clean_text(text):
     text = text.lower()
-    # Replace non-alphanumeric chars (except +, #, -, /) with space
     text = re.sub(r'[^a-z0-9\+\#\-\/\s]', ' ', text)
     return " ".join(text.split())
 
@@ -53,9 +75,8 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
             # Step 1: Extract and clean text
             resume_raw_text = extract_text_from_pdf(uploaded_file)
             
-            # Check if text extraction failed
             if len(resume_raw_text.strip()) == 0:
-                st.error("⚠️ Unable to extract text from this PDF. It may be scanned as an image or use unsupported font encodings.")
+                st.error("⚠️ Unable to parse this PDF. Please convert it to a standard PDF using Chrome or Google Docs.")
             else:
                 resume_text = clean_text(resume_raw_text)
                 jd_text = clean_text(job_description)
@@ -64,7 +85,7 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
                 with st.expander("🔍 Inspect Extracted Raw Text"):
                     st.text_area("Parsed Resume Text", resume_raw_text, height=150)
                 
-                # Step 2: ML Model Training & Evaluation with custom token_pattern
+                # Step 2: ML Model Training & Evaluation
                 documents = [resume_text, jd_text]
                 
                 vectorizer = TfidfVectorizer(
@@ -105,7 +126,6 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
                 st.divider()
                 st.header("📊 Evaluation Results")
                 
-                # Metric Card
                 st.metric(label="Overall Candidate Compatibility Score", value=f"{match_score}%")
                 
                 col_left, col_right = st.columns(2)
@@ -147,7 +167,6 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
                     'jd_importance': 'Job Description'
                 })
                 
-                # Generate Plot using Seaborn
                 fig, ax = plt.subplots(figsize=(10, 4))
                 sns.barplot(
                     data=plot_df, 
