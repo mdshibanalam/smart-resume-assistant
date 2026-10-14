@@ -1,3 +1,3 @@
 venv
-python.app.py.output.txt
+streamlit.run.app.py.output.txt
 demo_resume.pdf
