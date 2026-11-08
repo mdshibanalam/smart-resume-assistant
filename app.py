@@ -88,8 +88,15 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
                 # Step 2: ML Model Training & Evaluation
                 documents = [resume_text, jd_text]
                 
+                # Custom domain stop-words to eliminate JD noise
+                custom_stop_words = list(TfidfVectorizer(stop_words='english').get_stop_words()) + [
+                    'work', 'salary', 'knowledge', 'barclays', 'details', 'bengaluru', 
+                    'services', 'collaborate', 'build', 'candidate', 'candidates', 'ability',
+                    'looking', 'role', 'roles', 'responsibilities', 'qualifications', 'environment'
+                ]
+
                 vectorizer = TfidfVectorizer(
-                    stop_words='english',
+                    stop_words=custom_stop_words,
                     token_pattern=r'(?u)\b[a-zA-Z0-9\+\#\-\/]{2,}\b',
                     ngram_range=(1, 1),
                     sublinear_tf=True
