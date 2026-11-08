@@ -71,8 +71,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # App Branding Header
-st.title("⚡SMARA")
-st.caption("Smart Resume Assistant")
+st.title("⚡SMARA - Smart Resume Assistant")
+st.caption("An AI-Powered Resume Tailor and An Intelligent Applicant Tracking System - Powered by SMARA AI")
 
 # Sidebar Configuration (.env Auto-Load with Manual Override Option)
 st.sidebar.header("⚙️ AI Configuration")
@@ -238,7 +238,7 @@ if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=T
                                 Provide 3 bullet-point recommendations to seamlessly incorporate the top missing tech skills into candidate project descriptions.
                                 """
                                 response = client.models.generate_content(
-                                    model='gemini-3.8-flash',
+                                    model='gemini-flash-lite-latest',
                                     contents=prompt
                                 )
                                 
