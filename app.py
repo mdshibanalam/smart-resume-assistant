@@ -1,3 +1,6 @@
+import os
+import re
+from dotenv import load_dotenv
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -6,12 +9,14 @@ import matplotlib.pyplot as plt
 import pdfplumber
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import re
 from google import genai
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Page configuration
 st.set_page_config(
-    page_title="Smart Resume Assistant",
+    page_title="SMARA - Smart Resume Assistant",
     page_icon="⚡",
     layout="wide"
 )
@@ -65,12 +70,21 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ Smart Resume Assistant & ATS Optimizer")
-st.caption("AI-powered candidate-job fit analyzer with technical skill taxonomy & LLM recommendations.")
+# App Branding Header
+st.title("⚡ SMARA")
+st.caption("Smart Resume Assistant — Candidate-job fit analyzer powered by technical skill taxonomy & SMARA AI.")
 
-# Sidebar Settings
+# Sidebar Configuration (.env Auto-Load with Manual Override Option)
 st.sidebar.header("⚙️ Configuration")
-gemini_api_key = st.sidebar.text_input("Gemini API Key (Optional)", type="password")
+env_api_key = os.getenv("GEMINI_API_KEY", "")
+
+if env_api_key:
+    st.sidebar.success("✅ GEMINI_API_KEY loaded from .env")
+    gemini_api_key = env_api_key
+else:
+    gemini_api_key = st.sidebar.text_input("Gemini API Key (Manual Override)", type="password")
+    if not gemini_api_key:
+        st.sidebar.info("💡 Add `GEMINI_API_KEY` to your `.env` file to enable SMARA AI automatically.")
 
 # Predefined Technical Taxonomy
 TECH_TAXONOMY = {
@@ -112,7 +126,7 @@ with col2:
 
 if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=True):
     if uploaded_file is not None and job_description.strip() != "":
-        with st.spinner("Analyzing resume against job parameters..."):
+        with st.spinner("SMARA is analyzing candidate parameters..."):
             
             resume_raw_text = extract_text_from_pdf(uploaded_file)
             
@@ -161,7 +175,7 @@ if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=T
                 # Hero Score Header
                 st.markdown(f"""
                 <div class="hero-card">
-                    <div style="color: #A6ADC8; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Overall ATS Match Score</div>
+                    <div style="color: #A6ADC8; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">SMARA Overall ATS Match Score</div>
                     <div class="hero-score" style="color: {score_color};">{final_ats_score}%</div>
                     <div class="status-badge" style="background-color: {badge_bg}; color: {score_color}; border: 1px solid {score_color};">
                         {status_text}
@@ -176,7 +190,7 @@ if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=T
                     sc2.metric("Contextual Vector Score", f"{round(raw_similarity, 1)}%", help="TF-IDF keyword density similarity.")
 
                 # Tabbed Interface
-                tab1, tab2, tab3 = st.tabs(["🛠️ Skill Gap Analysis", "📈 Breakdown Chart", "🤖 AI Strategy Coach"])
+                tab1, tab2, tab3 = st.tabs(["🛠️ Skill Gap Analysis", "📈 Breakdown Chart", "🤖 SMARA AI Coach"])
 
                 with tab1:
                     t_col1, t_col2 = st.columns(2)
@@ -210,31 +224,55 @@ if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=T
                     st.pyplot(fig)
 
                 with tab3:
+                    st.markdown("### 🤖 SMARA AI Report")
                     if gemini_api_key:
-                        with st.spinner("Consulting Gemini AI Coach..."):
+                        with st.spinner("Consulting SMARA AI..."):
                             try:
                                 client = genai.Client(api_key=gemini_api_key)
                                 prompt = f"""
-                                You are an executive ATS Coach. Candidate scored {final_ats_score}% for this role.
+                                You are SMARA AI, an executive ATS Resume Coach. Candidate scored {final_ats_score}% for this role.
                                 Missing Skills: {', '.join(missing_tech)}
                                 Job Description: {job_description}
                                 Candidate Resume: {resume_raw_text}
                                 
-                                Provide 3 bullet-point recommendations to seamlessly incorporate the top missing tech skills.
+                                Provide 3 bullet-point recommendations to seamlessly incorporate the top missing tech skills into candidate project descriptions.
                                 """
                                 response = client.models.generate_content(
-                                    model='gemini-3.8-flash',
+                                    model='gemini-2.5-flash',
                                     contents=prompt
                                 )
-                                st.markdown(response.text)
-                            except Exception as ai_err:
-                                st.error(f"Gemini API Error: {ai_err}")
-                    else:
-                        st.info("💡 Add a free Gemini API key in the sidebar to get instant AI-generated bullet rewrite suggestions.")
+                                
+                                ai_report_text = f"""===================================
+SMARA AI REPORT
+===================================
+Candidate ATS Score: {final_ats_score}%
+Status: {status_text}
 
-                # Downloadable Audit Report
+MISSING TECH SKILLS:
+{', '.join(sorted(list(missing_tech))) if missing_tech else 'None'}
+
+SMARA AI STRATEGIC RECOMMENDATIONS:
+-----------------------------------
+{response.text}
+"""
+                                st.markdown(response.text)
+                                
+                                # Downloadable SMARA AI Report
+                                st.download_button(
+                                    label="📥 Download SMARA AI Report (.txt)",
+                                    data=ai_report_text,
+                                    file_name="SMARA_AI_Report.txt",
+                                    mime="text/plain",
+                                    use_container_width=True
+                                )
+                            except Exception as ai_err:
+                                st.error(f"SMARA AI Error: {ai_err}")
+                    else:
+                        st.info("💡 API Key missing. Add `GEMINI_API_KEY` to `.env` or input it in the sidebar to generate the SMARA AI Report.")
+
+                # Downloadable Summary Report
                 st.divider()
-                report_content = f"""ATS RESUME EVALUATION REPORT
+                summary_report_content = f"""SMARA REPORT
 ===========================
 Overall ATS Score: {final_ats_score}%
 Status: {status_text}
@@ -246,9 +284,9 @@ MISSING TECH SKILLS ({len(missing_tech)}):
 {', '.join(sorted(list(missing_tech)))}
 """
                 st.download_button(
-                    label="📥 Download Summary Report (.txt)",
-                    data=report_content,
-                    file_name="ATS_Resume_Evaluation_Report.txt",
+                    label="📥 Download SMARA Report (.txt)",
+                    data=summary_report_content,
+                    file_name="SMARA Report.txt",
                     mime="text/plain",
                     use_container_width=True
                 )
