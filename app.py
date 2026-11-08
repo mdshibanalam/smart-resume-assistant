@@ -223,7 +223,7 @@ if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=T
                                 Provide 3 bullet-point recommendations to seamlessly incorporate the top missing tech skills.
                                 """
                                 response = client.models.generate_content(
-                                    model='gemini-2.5-flash',
+                                    model='gemini-3.8-flash',
                                     contents=prompt
                                 )
                                 st.markdown(response.text)
