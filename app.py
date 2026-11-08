@@ -12,19 +12,74 @@ from google import genai
 # Page configuration
 st.set_page_config(
     page_title="Smart Resume Assistant",
-    page_icon="📄",
+    page_icon="⚡",
     layout="wide"
 )
 
-st.title("📄 Smart Resume Assistant & ATS Optimizer")
-st.markdown("Analyze ATS compatibility, skill gaps, and keyword alignment using Machine Learning & Generative AI.")
+# Custom CSS for UI Badges and Hero Cards
+st.markdown("""
+<style>
+    .hero-card {
+        background-color: #1E1E2E;
+        padding: 24px;
+        border-radius: 12px;
+        text-align: center;
+        margin-bottom: 25px;
+        border: 1px solid #313244;
+    }
+    .hero-score {
+        font-size: 54px;
+        font-weight: 800;
+        margin: 0;
+    }
+    .status-badge {
+        display: inline-block;
+        padding: 6px 16px;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 14px;
+        margin-top: 10px;
+    }
+    .badge-matched {
+        background-color: #1E3A2B;
+        color: #2ECC71;
+        border: 1px solid #2ECC71;
+        padding: 6px 12px;
+        border-radius: 6px;
+        display: inline-block;
+        margin: 4px;
+        font-size: 13px;
+        font-weight: 500;
+    }
+    .badge-missing {
+        background-color: #3A1E1E;
+        color: #E74C3C;
+        border: 1px solid #E74C3C;
+        padding: 6px 12px;
+        border-radius: 6px;
+        display: inline-block;
+        margin: 4px;
+        font-size: 13px;
+        font-weight: 500;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# Sidebar for Gemini API Key
-st.sidebar.header("🔑 AI Integration Settings")
-gemini_api_key = st.sidebar.text_input("Enter Gemini API Key (Optional)", type="password")
-st.sidebar.info("Get a free key from Google AI Studio to unlock LLM-powered bullet rewrites and strategic advice.")
+st.title("⚡ Smart Resume Assistant & ATS Optimizer")
+st.caption("AI-powered candidate-job fit analyzer with technical skill taxonomy & LLM recommendations.")
 
-# Helper function to extract text from PDF using pdfplumber
+# Sidebar Settings
+st.sidebar.header("⚙️ Configuration")
+gemini_api_key = st.sidebar.text_input("Gemini API Key (Optional)", type="password")
+
+# Predefined Technical Taxonomy
+TECH_TAXONOMY = {
+    'python', 'java', 'c', 'cpp', 'c++', 'c#', 'javascript', 'typescript', 'go', 'golang', 'rust', 'sql', 'bash', 'powershell', 'html', 'css',
+    'spring boot', 'spring', 'react', 'react.js', 'next.js', 'flask', 'django', 'streamlit', 'scikit-learn', 'tensorflow', 'keras', 'pytorch', 'pandas', 'numpy', 'seaborn', 'matplotlib',
+    'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'terraform', 'cloudformation', 'bitbucket', 'gitlab', 'git', 'ci/cd', 'ec2', 'ecs', 's3', 'lambda', 'rds', 'kms', 'elb', 'sns', 'sqs', 'iam',
+    'microservices', 'rest api', 'graphql', 'linux', 'networking', 'firewalls', 'routing', 'agile', 'data pipelines', 'data warehouse', 'data lakes', 'dbms', 'oop', 'machine learning', 'deep learning', 'cnn-lstm', 'dqn'
+}
+
 def extract_text_from_pdf(pdf_file):
     extracted_text = ""
     with pdfplumber.open(pdf_file) as pdf:
@@ -34,152 +89,169 @@ def extract_text_from_pdf(pdf_file):
                 extracted_text += text + "\n"
     return extracted_text.strip()
 
-# Helper function to clean text while preserving technical symbols
 def clean_text(text):
     text = text.lower()
     text = re.sub(r'[^a-z0-9\+\#\-\/\s]', ' ', text)
     return " ".join(text.split())
 
-# Main Input Section
+def extract_tech_skills(text):
+    cleaned = clean_text(text)
+    found_skills = set()
+    for skill in TECH_TAXONOMY:
+        pattern = r'\b' + re.escape(skill) + r'\b'
+        if re.search(pattern, cleaned):
+            found_skills.add(skill)
+    return found_skills
+
+# Upload Section
 col1, col2 = st.columns(2)
-
 with col1:
-    st.subheader("1. Upload Candidate Resume")
-    uploaded_file = st.file_uploader("Upload PDF Resume", type=["pdf"])
-
+    uploaded_file = st.file_uploader("1. Upload Candidate Resume (PDF)", type=["pdf"])
 with col2:
-    st.subheader("2. Target Job Description")
-    job_description = st.text_area("Paste Job Description (JD) here", height=200)
+    job_description = st.text_area("2. Paste Job Description (JD)", height=160)
 
-if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
+if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=True):
     if uploaded_file is not None and job_description.strip() != "":
-        with st.spinner("Extracting text and calculating TF-IDF vector similarity..."):
+        with st.spinner("Analyzing resume against job parameters..."):
             
-            # Step 1: Extract and clean text
             resume_raw_text = extract_text_from_pdf(uploaded_file)
             
             if len(resume_raw_text.strip()) == 0:
-                st.error("⚠️ Unable to extract text from this PDF. Please check file encoding.")
+                st.error("⚠️ Unable to extract text from PDF.")
             else:
                 resume_text = clean_text(resume_raw_text)
                 jd_text = clean_text(job_description)
                 
-                # Debug Expander
-                with st.expander("🔍 Inspect Extracted Raw Text"):
-                    st.text_area("Parsed Resume Text", resume_raw_text, height=150)
-                
-                # Step 2: TF-IDF Vectorizer with Custom Stop Words Filter
-                base_stop_words = list(TfidfVectorizer(stop_words='english').get_stop_words())
-                domain_noise = [
-                    'work', 'salary', 'knowledge', 'barclays', 'details', 'bengaluru', 
-                    'services', 'collaborate', 'build', 'candidate', 'candidates', 'ability',
-                    'looking', 'role', 'roles', 'responsibilities', 'qualifications', 'environment',
-                    'implement', 'understanding', 'lpa', 'engineer', '2023', '2024', '2022', '2025', '2026'
-                ]
-                custom_stop_words = list(set(base_stop_words + domain_noise))
-                
+                # TF-IDF Vector Similarity
                 vectorizer = TfidfVectorizer(
-                    stop_words=custom_stop_words,
+                    stop_words='english',
                     token_pattern=r'(?u)\b[a-zA-Z0-9\+\#\-\/]{2,}\b',
                     ngram_range=(1, 1),
                     sublinear_tf=True
                 )
+                tfidf_matrix = vectorizer.fit_transform([resume_text, jd_text])
+                raw_similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0] * 100
                 
-                documents = [resume_text, jd_text]
-                tfidf_matrix = vectorizer.fit_transform(documents)
+                # Tech Skill Extraction
+                resume_tech = extract_tech_skills(resume_raw_text)
+                jd_tech = extract_tech_skills(job_description)
                 
-                # Calculate Similarity
-                similarity_matrix = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])
-                match_score = round(similarity_matrix[0][0] * 100, 2)
+                matching_tech = resume_tech.intersection(jd_tech)
+                missing_tech = jd_tech - resume_tech
                 
-                # Step 3: Skill Gap Analysis & Keyword Frequency Extraction
-                feature_names = np.array(vectorizer.get_feature_names_out())
-                resume_vector = tfidf_matrix[0].toarray()[0]
-                jd_vector = tfidf_matrix[1].toarray()[0]
+                tech_match_score = (len(matching_tech) / len(jd_tech) * 100) if len(jd_tech) > 0 else raw_similarity
+                final_ats_score = round((0.40 * raw_similarity) + (0.60 * tech_match_score), 1)
                 
-                df_words = pd.DataFrame({
-                    'keyword': feature_names,
-                    'resume_importance': resume_vector,
-                    'jd_importance': jd_vector
-                })
-                
-                # Filter out pure numbers from keywords
-                df_words = df_words[~df_words['keyword'].str.isnumeric()]
-                
-                missing_keywords = df_words[
-                    (df_words['jd_importance'] > 0) & (df_words['resume_importance'] == 0)
-                ].sort_values(by='jd_importance', ascending=False).head(10)
-                
-                matching_keywords = df_words[
-                    (df_words['jd_importance'] > 0) & (df_words['resume_importance'] > 0)
-                ].sort_values(by='jd_importance', ascending=False).head(10)
-                
-                # Display Statistical Results
-                st.divider()
-                st.header("📊 Evaluation Results")
-                st.metric(label="Overall Candidate Compatibility Score", value=f"{match_score}%")
-                
-                col_left, col_right = st.columns(2)
-                with col_left:
-                    st.subheader("🎯 Top Keyword Match")
-                    if not matching_keywords.empty:
-                        st.dataframe(matching_keywords[['keyword']].reset_index(drop=True), width="stretch")
-                    else:
-                        st.write("No direct keyword overlap detected.")
+                # Color and Status Formatting
+                if final_ats_score >= 70:
+                    score_color = "#2ECC71"
+                    status_text = "🟢 Strong Match — Ready to Apply"
+                    badge_bg = "#1E3A2B"
+                elif final_ats_score >= 45:
+                    score_color = "#F39C12"
+                    status_text = "🟡 Moderate Match — Needs Minor Adjustments"
+                    badge_bg = "#3A301E"
+                else:
+                    score_color = "#E74C3C"
+                    status_text = "🔴 Needs Tailoring — Significant Skill Gap"
+                    badge_bg = "#3A1E1E"
 
-                with col_right:
-                    st.subheader("⚠️ Missing Critical Technical Keywords")
-                    if not missing_keywords.empty:
-                        st.dataframe(missing_keywords[['keyword']].reset_index(drop=True), width="stretch")
-                    else:
-                        st.write("No major skill gaps identified!")
-
-                # Seaborn Visualization
                 st.divider()
-                st.subheader("📈 Visualization: Keyword Importance Comparison (Seaborn)")
-                top_jd_words = df_words.sort_values(by='jd_importance', ascending=False).head(8)
-                plot_df = pd.melt(
-                    top_jd_words, 
-                    id_vars=['keyword'], 
-                    value_vars=['resume_importance', 'jd_importance'],
-                    var_name='Source', 
-                    value_name='TF-IDF Score'
+
+                # Hero Score Header
+                st.markdown(f"""
+                <div class="hero-card">
+                    <div style="color: #A6ADC8; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Overall ATS Match Score</div>
+                    <div class="hero-score" style="color: {score_color};">{final_ats_score}%</div>
+                    <div class="status-badge" style="background-color: {badge_bg}; color: {score_color}; border: 1px solid {score_color};">
+                        {status_text}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Sub-Score Breakdown Expander
+                with st.expander("🔍 View Technical Score Breakdown"):
+                    sc1, sc2 = st.columns(2)
+                    sc1.metric("Tech Stack Match Rate", f"{round(tech_match_score, 1)}%", help="Percentage of required technical skills present on your resume.")
+                    sc2.metric("Contextual Vector Score", f"{round(raw_similarity, 1)}%", help="TF-IDF keyword density similarity.")
+
+                # Tabbed Interface
+                tab1, tab2, tab3 = st.tabs(["🛠️ Skill Gap Analysis", "📈 Breakdown Chart", "🤖 AI Strategy Coach"])
+
+                with tab1:
+                    t_col1, t_col2 = st.columns(2)
+                    
+                    with t_col1:
+                        st.markdown(f"#### 🎯 Matching Tech Skills ({len(matching_tech)})")
+                        if matching_tech:
+                            badges_html = "".join([f'<span class="badge-matched">✓ {skill.upper()}</span>' for skill in sorted(list(matching_tech))])
+                            st.markdown(badges_html, unsafe_allow_html=True)
+                        else:
+                            st.info("No direct technical skills matched.")
+
+                    with t_col2:
+                        st.markdown(f"#### ⚠️ Missing Tech Skills ({len(missing_tech)})")
+                        if missing_tech:
+                            badges_html = "".join([f'<span class="badge-missing">✕ {skill.upper()}</span>' for skill in sorted(list(missing_tech))])
+                            st.markdown(badges_html, unsafe_allow_html=True)
+                        else:
+                            st.success("All required technical skills are covered!")
+
+                with tab2:
+                    tech_summary_df = pd.DataFrame({
+                        'Category': ['Matching Tech Skills', 'Missing Tech Skills'],
+                        'Count': [len(matching_tech), len(missing_tech)]
+                    })
+                    fig, ax = plt.subplots(figsize=(7, 2.5))
+                    sns.barplot(data=tech_summary_df, x='Count', y='Category', palette=['#2ECC71', '#E74C3C'], ax=ax)
+                    ax.set_title("Tech Stack Coverage Ratio", fontsize=11)
+                    ax.set_xlabel("Number of Skills")
+                    ax.set_ylabel("")
+                    st.pyplot(fig)
+
+                with tab3:
+                    if gemini_api_key:
+                        with st.spinner("Consulting Gemini AI Coach..."):
+                            try:
+                                client = genai.Client(api_key=gemini_api_key)
+                                prompt = f"""
+                                You are an executive ATS Coach. Candidate scored {final_ats_score}% for this role.
+                                Missing Skills: {', '.join(missing_tech)}
+                                Job Description: {job_description}
+                                Candidate Resume: {resume_raw_text}
+                                
+                                Provide 3 bullet-point recommendations to seamlessly incorporate the top missing tech skills.
+                                """
+                                response = client.models.generate_content(
+                                    model='gemini-2.5-flash',
+                                    contents=prompt
+                                )
+                                st.markdown(response.text)
+                            except Exception as ai_err:
+                                st.error(f"Gemini API Error: {ai_err}")
+                    else:
+                        st.info("💡 Add a free Gemini API key in the sidebar to get instant AI-generated bullet rewrite suggestions.")
+
+                # Downloadable Audit Report
+                st.divider()
+                report_content = f"""ATS RESUME EVALUATION REPORT
+===========================
+Overall ATS Score: {final_ats_score}%
+Status: {status_text}
+
+TECH STACK MATCHES ({len(matching_tech)}):
+{', '.join(sorted(list(matching_tech)))}
+
+MISSING TECH SKILLS ({len(missing_tech)}):
+{', '.join(sorted(list(missing_tech)))}
+"""
+                st.download_button(
+                    label="📥 Download Summary Report (.txt)",
+                    data=report_content,
+                    file_name="ATS_Resume_Evaluation_Report.txt",
+                    mime="text/plain",
+                    use_container_width=True
                 )
-                plot_df['Source'] = plot_df['Source'].map({'resume_importance': 'Resume', 'jd_importance': 'Job Description'})
-                
-                fig, ax = plt.subplots(figsize=(10, 4))
-                sns.barplot(data=plot_df, x='TF-IDF Score', y='keyword', hue='Source', palette=['#4C72B0', '#DD8452'], ax=ax)
-                ax.set_title("TF-IDF Vector Weight Comparison for Top Technical Keywords")
-                st.pyplot(fig)
-
-                # Step 4: Optional Gemini API AI Strategic Advice Module
-                if gemini_api_key:
-                    st.divider()
-                    st.header("🤖 Gemini AI Strategic Resume Optimization")
-                    with st.spinner("Generating LLM strategic recommendations..."):
-                        try:
-                            client = genai.Client(api_key=gemini_api_key)
-                            prompt = f"""
-                            You are an expert ATS Resume Coach. Analyze the candidate resume against the Job Description.
-                            
-                            Job Description:
-                            {job_description}
-                            
-                            Candidate Resume:
-                            {resume_raw_text}
-                            
-                            Provide:
-                            1. Three critical missing technical skills or concepts that should be added.
-                            2. Two specific bullet points from the candidate's resume rewritten to better match the JD key requirements.
-                            3. Final actionable recommendation to increase ATS score.
-                            """
-                            response = client.models.generate_content(
-                                model='gemini-2.5-flash',
-                                contents=prompt
-                            )
-                            st.markdown(response.text)
-                        except Exception as ai_err:
-                            st.error(f"Gemini API Error: {ai_err}")
 
     else:
         st.error("Please upload a PDF resume and provide a target job description.")
