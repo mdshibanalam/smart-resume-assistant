@@ -8,3 +8,4 @@ pdfplumper
 pytesseract
 pdf2image
 pillow
+python-dotenv
