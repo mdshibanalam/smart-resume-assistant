@@ -71,15 +71,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # App Branding Header
-st.title("⚡ SMARA")
-st.caption("Smart Resume Assistant — Candidate-job fit analyzer powered by technical skill taxonomy & SMARA AI.")
+st.title("⚡SMARA")
+st.caption("Smart Resume Assistant")
 
 # Sidebar Configuration (.env Auto-Load with Manual Override Option)
-st.sidebar.header("⚙️ Configuration")
+st.sidebar.header("⚙️ AI Configuration")
 env_api_key = os.getenv("GEMINI_API_KEY", "")
 
 if env_api_key:
-    st.sidebar.success("✅ GEMINI_API_KEY loaded from .env")
+    st.sidebar.success("SMARA AI Enabled ✅")
     gemini_api_key = env_api_key
 else:
     gemini_api_key = st.sidebar.text_input("Gemini API Key (Manual Override)", type="password")
@@ -238,7 +238,7 @@ if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=T
                                 Provide 3 bullet-point recommendations to seamlessly incorporate the top missing tech skills into candidate project descriptions.
                                 """
                                 response = client.models.generate_content(
-                                    model='gemini-2.5-flash',
+                                    model='gemini-3.8-flash',
                                     contents=prompt
                                 )
                                 
