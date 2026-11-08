@@ -4,12 +4,10 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pdfplumber
-import pytesseract
-from pdf2image import convert_from_bytes
-from PIL import Image
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import re
+from google import genai
 
 # Page configuration
 st.set_page_config(
@@ -18,40 +16,25 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("📄 Smart Resume Assistant")
-st.markdown("Analyze ATS compatibility, skill gaps, and keyword alignment using Machine Learning.")
+st.title("📄 Smart Resume Assistant & ATS Optimizer")
+st.markdown("Analyze ATS compatibility, skill gaps, and keyword alignment using Machine Learning & Generative AI.")
 
-# Helper function to extract text with OCR Fallback
+# Sidebar for Gemini API Key
+st.sidebar.header("🔑 AI Integration Settings")
+gemini_api_key = st.sidebar.text_input("Enter Gemini API Key (Optional)", type="password")
+st.sidebar.info("Get a free key from Google AI Studio to unlock LLM-powered bullet rewrites and strategic advice.")
+
+# Helper function to extract text from PDF using pdfplumber
 def extract_text_from_pdf(pdf_file):
     extracted_text = ""
-    
-    # Method 1: Standard Text Extraction via pdfplumber
-    try:
-        pdf_bytes = pdf_file.read()
-        pdf_file.seek(0) # Reset stream pointer
-        
-        with pdfplumber.open(pdf_file) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text()
-                if text:
-                    extracted_text += text + "\n"
-    except Exception as e:
-        pass
-
-    # Method 2: OCR Fallback via pytesseract if Method 1 returned no readable characters
-    if len(extracted_text.strip()) == 0:
-        st.info("ℹ️ Standard text layer not detected. Executing Optical Character Recognition (OCR)...")
-        try:
-            images = convert_from_bytes(pdf_bytes)
-            for img in images:
-                ocr_text = pytesseract.image_to_string(img)
-                extracted_text += ocr_text + "\n"
-        except Exception as ocr_err:
-            st.warning("OCR processing failed. Please re-export your PDF using MS Word or Google Docs.")
-
+    with pdfplumber.open(pdf_file) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                extracted_text += text + "\n"
     return extracted_text.strip()
 
-# Helper function to clean text
+# Helper function to clean text while preserving technical symbols
 def clean_text(text):
     text = text.lower()
     text = re.sub(r'[^a-z0-9\+\#\-\/\s]', ' ', text)
@@ -76,25 +59,25 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
             resume_raw_text = extract_text_from_pdf(uploaded_file)
             
             if len(resume_raw_text.strip()) == 0:
-                st.error("⚠️ Unable to parse this PDF. Please convert it to a standard PDF using Chrome or Google Docs.")
+                st.error("⚠️ Unable to extract text from this PDF. Please check file encoding.")
             else:
                 resume_text = clean_text(resume_raw_text)
                 jd_text = clean_text(job_description)
                 
-                # Debug Expander (Inspect extracted text)
+                # Debug Expander
                 with st.expander("🔍 Inspect Extracted Raw Text"):
                     st.text_area("Parsed Resume Text", resume_raw_text, height=150)
                 
-                # Step 2: ML Model Training & Evaluation
-                documents = [resume_text, jd_text]
-                
-                # Custom domain stop-words to eliminate JD noise
-                custom_stop_words = list(TfidfVectorizer(stop_words='english').get_stop_words()) + [
+                # Step 2: TF-IDF Vectorizer with Custom Stop Words Filter
+                base_stop_words = list(TfidfVectorizer(stop_words='english').get_stop_words())
+                domain_noise = [
                     'work', 'salary', 'knowledge', 'barclays', 'details', 'bengaluru', 
                     'services', 'collaborate', 'build', 'candidate', 'candidates', 'ability',
-                    'looking', 'role', 'roles', 'responsibilities', 'qualifications', 'environment'
+                    'looking', 'role', 'roles', 'responsibilities', 'qualifications', 'environment',
+                    'implement', 'understanding', 'lpa', 'engineer', '2023', '2024', '2022', '2025', '2026'
                 ]
-
+                custom_stop_words = list(set(base_stop_words + domain_noise))
+                
                 vectorizer = TfidfVectorizer(
                     stop_words=custom_stop_words,
                     token_pattern=r'(?u)\b[a-zA-Z0-9\+\#\-\/]{2,}\b',
@@ -102,6 +85,7 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
                     sublinear_tf=True
                 )
                 
+                documents = [resume_text, jd_text]
                 tfidf_matrix = vectorizer.fit_transform(documents)
                 
                 # Calculate Similarity
@@ -119,48 +103,40 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
                     'jd_importance': jd_vector
                 })
                 
-                # Keywords present in JD but missing/low in Resume
+                # Filter out pure numbers from keywords
+                df_words = df_words[~df_words['keyword'].str.isnumeric()]
+                
                 missing_keywords = df_words[
                     (df_words['jd_importance'] > 0) & (df_words['resume_importance'] == 0)
                 ].sort_values(by='jd_importance', ascending=False).head(10)
                 
-                # Top Matching Keywords
                 matching_keywords = df_words[
                     (df_words['jd_importance'] > 0) & (df_words['resume_importance'] > 0)
                 ].sort_values(by='jd_importance', ascending=False).head(10)
                 
-                # Display Results
+                # Display Statistical Results
                 st.divider()
                 st.header("📊 Evaluation Results")
-                
                 st.metric(label="Overall Candidate Compatibility Score", value=f"{match_score}%")
                 
                 col_left, col_right = st.columns(2)
-                
                 with col_left:
                     st.subheader("🎯 Top Keyword Match")
                     if not matching_keywords.empty:
-                        st.dataframe(
-                            matching_keywords[['keyword']].reset_index(drop=True),
-                            width="stretch"
-                        )
+                        st.dataframe(matching_keywords[['keyword']].reset_index(drop=True), width="stretch")
                     else:
                         st.write("No direct keyword overlap detected.")
 
                 with col_right:
-                    st.subheader("⚠️ Missing Critical Keywords")
+                    st.subheader("⚠️ Missing Critical Technical Keywords")
                     if not missing_keywords.empty:
-                        st.dataframe(
-                            missing_keywords[['keyword']].reset_index(drop=True),
-                            width="stretch"
-                        )
+                        st.dataframe(missing_keywords[['keyword']].reset_index(drop=True), width="stretch")
                     else:
                         st.write("No major skill gaps identified!")
 
-                # Step 4: Seaborn Visualization
+                # Seaborn Visualization
                 st.divider()
                 st.subheader("📈 Visualization: Keyword Importance Comparison (Seaborn)")
-                
                 top_jd_words = df_words.sort_values(by='jd_importance', ascending=False).head(8)
                 plot_df = pd.melt(
                     top_jd_words, 
@@ -169,25 +145,41 @@ if st.button("Analyze Resume & Calculate Compatibility Score", type="primary"):
                     var_name='Source', 
                     value_name='TF-IDF Score'
                 )
-                plot_df['Source'] = plot_df['Source'].map({
-                    'resume_importance': 'Resume', 
-                    'jd_importance': 'Job Description'
-                })
+                plot_df['Source'] = plot_df['Source'].map({'resume_importance': 'Resume', 'jd_importance': 'Job Description'})
                 
                 fig, ax = plt.subplots(figsize=(10, 4))
-                sns.barplot(
-                    data=plot_df, 
-                    x='TF-IDF Score', 
-                    y='keyword', 
-                    hue='Source', 
-                    palette=['#4C72B0', '#DD8452'],
-                    ax=ax
-                )
-                ax.set_title("TF-IDF Vector Weight Comparison for Top JD Keywords")
-                ax.set_xlabel("Feature Weight")
-                ax.set_ylabel("Keyword")
-                
+                sns.barplot(data=plot_df, x='TF-IDF Score', y='keyword', hue='Source', palette=['#4C72B0', '#DD8452'], ax=ax)
+                ax.set_title("TF-IDF Vector Weight Comparison for Top Technical Keywords")
                 st.pyplot(fig)
-            
+
+                # Step 4: Optional Gemini API AI Strategic Advice Module
+                if gemini_api_key:
+                    st.divider()
+                    st.header("🤖 Gemini AI Strategic Resume Optimization")
+                    with st.spinner("Generating LLM strategic recommendations..."):
+                        try:
+                            client = genai.Client(api_key=gemini_api_key)
+                            prompt = f"""
+                            You are an expert ATS Resume Coach. Analyze the candidate resume against the Job Description.
+                            
+                            Job Description:
+                            {job_description}
+                            
+                            Candidate Resume:
+                            {resume_raw_text}
+                            
+                            Provide:
+                            1. Three critical missing technical skills or concepts that should be added.
+                            2. Two specific bullet points from the candidate's resume rewritten to better match the JD key requirements.
+                            3. Final actionable recommendation to increase ATS score.
+                            """
+                            response = client.models.generate_content(
+                                model='gemini-2.5-flash',
+                                contents=prompt
+                            )
+                            st.markdown(response.text)
+                        except Exception as ai_err:
+                            st.error(f"Gemini API Error: {ai_err}")
+
     else:
         st.error("Please upload a PDF resume and provide a target job description.")
