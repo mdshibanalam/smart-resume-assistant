@@ -72,7 +72,7 @@ st.markdown("""
 
 # App Branding Header
 st.title("⚡SMARA - Smart Resume Assistant")
-st.caption("An AI-Powered Resume Tailor and An Intelligent Applicant Tracking System - Powered by SMARA AI")
+st.caption("An Intelligent Applicant Tracking System with An AI-Powered Resume Tailor Assistant - Powered by SMARA AI")
 
 # Sidebar Configuration (.env Auto-Load with Manual Override Option)
 st.sidebar.header("⚙️ AI Configuration")
