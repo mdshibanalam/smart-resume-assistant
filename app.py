@@ -145,21 +145,31 @@ def clean_text(text):
     text = re.sub(r'[^a-z0-9\+\#\-\/\s]', ' ', text)
     return " ".join(text.split())
 
-# Domain-Agnostic Skill & Competency Extraction Engine
-def extract_domain_competencies(jd_text, top_n=20):
-    cleaned_jd = clean_text(jd_text)
+def extract_domain_competencies(jd_text, gemini_client):
+    if not gemini_client:
+        return [] # Fallback if API fails early
     
-    # Generic administrative stop-words across all domains
-    domain_noise = [
-        'work', 'experience', 'ability', 'looking', 'role', 'roles', 'responsibilities',
-        'qualifications', 'environment', 'opportunity', 'opening', 'job', 'description',
-        'candidate', 'candidates', 'years', 'year', 'required', 'requirements', 'strong',
-        'good', 'excellent', 'skills', 'skill', 'team', 'working', 'join', 'company',
-        'plus', 'degree', 'bachelor', 'master', 'field', 'related', 'knowledge',
-        'understanding', 'tasks', 'duties', 'deliver', 'support', 'help', 'provide',
-        'ensure', 'high', 'quality', 'using', 'used', 'use', 'new', 'solutions',
-        'system', 'systems', 'details', 'location', 'salary', 'package', 'full-time', 'part-time'
-    ]
+    prompt = f"""
+    Extract the top 15-20 core hard skills, technical tools, frameworks, and specific methodologies from the following job description.
+    DO NOT include soft skills (e.g., 'collaborate', 'leadership').
+    DO NOT include generic action verbs or nouns (e.g., 'build', 'applications', 'develop', 'maintain', 'services').
+    DO NOT include company names, locations, or degrees.
+    Return ONLY a comma-separated list of the extracted skills in lowercase.
+    
+    Job Description:
+    {jd_text}
+    """
+    
+    try:
+        response = gemini_client.models.generate_content(
+            model='gemini-flash-lite-latest',
+            contents=prompt
+        )
+        # Parse the comma-separated string back into a Python list
+        skills = [skill.strip() for skill in response.text.split(',')]
+        return [s for s in skills if s]
+    except Exception as e:
+        return []
     
     base_stop_words = list(TfidfVectorizer(stop_words='english').get_stop_words())
     custom_stop_words = list(set(base_stop_words + domain_noise))
@@ -220,9 +230,9 @@ if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=T
                 tfidf_matrix = vectorizer.fit_transform([resume_text, jd_text])
                 raw_similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0] * 100
                 
-                # Dynamic Domain Competency Matching (Domain Agnostic)
-                extracted_competencies = extract_domain_competencies(job_description, top_n=20)
-                
+                # Replace the old extraction line with this:
+                extracted_competencies = extract_domain_competencies(job_description, gemini_client)
+
                 matching_skills = [kw for kw in extracted_competencies if kw in resume_text]
                 missing_skills = [kw for kw in extracted_competencies if kw not in matching_skills]
                 
@@ -278,13 +288,18 @@ MISSING COMPETENCIES ({len(missing_skills)}):
                 if api_valid and gemini_client:
                     try:
                         prompt = f"""
-                        You are SMARA AI, an executive ATS Resume Coach. Candidate scored {final_ats_score}% for this role.
-                        Missing Domain Skills/Competencies: {', '.join(missing_skills)}
+                        You are SMARA AI, an executive ATS Resume Coach. The candidate scored {final_ats_score}% for this role.
+                        Missing Domain Skills: {', '.join(missing_skills)}
                         Job Description: {job_description}
                         Candidate Resume: {resume_raw_text}
-                        
-                        Provide 3 strategic bullet-point recommendations to seamlessly incorporate the missing skills into candidate accomplishments.
+
+                        Provide 3 strategic bullet-point recommendations to seamlessly incorporate the missing technical skills into the candidate's existing accomplishments.
+                        CRITICAL RULES:
+                        - Focus ONLY on hard skills, tools, and quantifiable metrics.
+                        - NEVER recommend adding the hiring company's name or target location to the resume.
+                        - NEVER recommend lying about a skill the candidate clearly lacks; instead, suggest how they can pivot existing adjacent experience to match it.
                         """
+
                         response = gemini_client.models.generate_content(
                             model='gemini-flash-lite-latest',
                             contents=prompt
