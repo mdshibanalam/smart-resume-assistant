@@ -75,50 +75,61 @@ st.markdown("""
 st.title("⚡ SMARA - Smart Resume Assistant")
 st.caption("An Intelligent Applicant Tracking System with An AI-Powered Resume Tailor Assistant - Powered by SMARA AI")
 
-# Sidebar Configuration & Early API Authentication
+# Sidebar Configuration & Dynamic BYOK Authentication Fallback
 st.sidebar.header("⚙️ AI Configuration")
-env_api_key = os.getenv("GEMINI_API_KEY", "")
 
-if env_api_key:
-    user_api_key = env_api_key
-else:
-    user_api_key = st.sidebar.text_input("Gemini API Key (Manual Override)", type="password")
-    if not user_api_key:
-        st.sidebar.info("💡 Add `GEMINI_API_KEY` to your `.env` file to enable SMARA AI automatically.")
-
-# Perform Early API Authentication Verification
-gemini_client = None
+env_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+user_api_key = ""
 api_valid = False
+gemini_client = None
+auth_error_msg = ""
 
-if user_api_key:
+def validate_gemini_key(key):
+    if not key:
+        return False, None, "No API key provided."
     try:
-        test_client = genai.Client(api_key=user_api_key)
-        # Perform lightweight check call to verify credentials on app load
-        test_client.models.generate_content(
+        client = genai.Client(api_key=key)
+        # Lightweight authentication check on app load
+        client.models.generate_content(
             model='gemini-flash-lite-latest',
             contents='Ping'
         )
-        st.sidebar.success("SMARA AI Enabled ✅")
-        gemini_client = test_client
-        api_valid = True
-    except Exception as auth_error:
-        # Simplify common exception messages for clean sidebar display
-        err_msg = str(auth_error)
-        if "API_KEY_INVALID" in err_msg or "400" in err_msg or "403" in err_msg:
-            st.sidebar.error("❌ SMARA AI Auth Failed: Invalid API Key")
+        return True, client, "Authentication Successful"
+    except Exception as e:
+        return False, None, str(e)
+
+# 1. Attempt verification of system environment key first
+if env_api_key:
+    api_valid, gemini_client, auth_error_msg = validate_gemini_key(env_api_key)
+    if api_valid:
+        st.sidebar.success("SMARA AI Enabled (System Key) ✅")
+        user_api_key = env_api_key
+    else:
+        st.sidebar.warning("⚠️ System Key Auth Failed")
+
+# 2. BYOK Fallback: Allow manual key input if ENV key is missing or invalid
+if not api_valid:
+    byok_key = st.sidebar.text_input("Gemini API Key (BYOK Fallback)", type="password")
+    if byok_key:
+        api_valid, gemini_client, auth_error_msg = validate_gemini_key(byok_key.strip())
+        if api_valid:
+            st.sidebar.success("SMARA AI Enabled (User Key) ✅")
+            user_api_key = byok_key.strip()
         else:
-            st.sidebar.error(f"❌ SMARA AI Auth Failed: {err_msg[:80]}")
-        api_valid = False
-        gemini_client = None
+            st.sidebar.error("❌ SMARA AI Auth Failed")
+            st.sidebar.caption(f"Error: {auth_error_msg[:90]}")
 
-# Predefined Technical Taxonomy
-TECH_TAXONOMY = {
-    'python', 'java', 'c', 'cpp', 'c++', 'c#', 'javascript', 'typescript', 'go', 'golang', 'rust', 'sql', 'bash', 'powershell', 'html', 'css',
-    'spring boot', 'spring', 'react', 'react.js', 'next.js', 'flask', 'django', 'streamlit', 'scikit-learn', 'tensorflow', 'keras', 'pytorch', 'pandas', 'numpy', 'seaborn', 'matplotlib',
-    'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'terraform', 'cloudformation', 'bitbucket', 'gitlab', 'git', 'ci/cd', 'ec2', 'ecs', 's3', 'lambda', 'rds', 'kms', 'elb', 'sns', 'sqs', 'iam',
-    'microservices', 'rest api', 'graphql', 'linux', 'networking', 'firewalls', 'routing', 'agile', 'data pipelines', 'data warehouse', 'data lakes', 'dbms', 'oop', 'machine learning', 'deep learning', 'cnn-lstm', 'dqn'
-}
+# 3. Help guide displayed in sidebar if authentication fails or key is missing
+if not api_valid:
+    with st.sidebar.expander("❓ How to get a FREE Gemini API Key", expanded=True):
+        st.markdown("""
+        1. Go to [Google AI Studio](https://aistudio.google.com/).
+        2. Sign in with your Google account.
+        3. Click **"Get API key"** and then **"Create API key"**.
+        4. Copy your key and paste it above (or save it in `.env` as `GEMINI_API_KEY`).
+        """)
 
+# PDF Extraction Function
 def extract_text_from_pdf(pdf_file):
     extracted_text = ""
     with pdfplumber.open(pdf_file) as pdf:
@@ -128,19 +139,56 @@ def extract_text_from_pdf(pdf_file):
                 extracted_text += text + "\n"
     return extracted_text.strip()
 
+# Text Cleaning Function
 def clean_text(text):
     text = text.lower()
     text = re.sub(r'[^a-z0-9\+\#\-\/\s]', ' ', text)
     return " ".join(text.split())
 
-def extract_tech_skills(text):
-    cleaned = clean_text(text)
-    found_skills = set()
-    for skill in TECH_TAXONOMY:
-        pattern = r'\b' + re.escape(skill) + r'\b'
-        if re.search(pattern, cleaned):
-            found_skills.add(skill)
-    return found_skills
+# Domain-Agnostic Skill & Competency Extraction Engine
+def extract_domain_competencies(jd_text, top_n=20):
+    cleaned_jd = clean_text(jd_text)
+    
+    # Generic administrative stop-words across all domains
+    domain_noise = [
+        'work', 'experience', 'ability', 'looking', 'role', 'roles', 'responsibilities',
+        'qualifications', 'environment', 'opportunity', 'opening', 'job', 'description',
+        'candidate', 'candidates', 'years', 'year', 'required', 'requirements', 'strong',
+        'good', 'excellent', 'skills', 'skill', 'team', 'working', 'join', 'company',
+        'plus', 'degree', 'bachelor', 'master', 'field', 'related', 'knowledge',
+        'understanding', 'tasks', 'duties', 'deliver', 'support', 'help', 'provide',
+        'ensure', 'high', 'quality', 'using', 'used', 'use', 'new', 'solutions',
+        'system', 'systems', 'details', 'location', 'salary', 'package', 'full-time', 'part-time'
+    ]
+    
+    base_stop_words = list(TfidfVectorizer(stop_words='english').get_stop_words())
+    custom_stop_words = list(set(base_stop_words + domain_noise))
+    
+    vectorizer = TfidfVectorizer(
+        stop_words=custom_stop_words,
+        token_pattern=r'(?u)\b[a-zA-Z0-9\+\#\-\/]{2,}\b',
+        ngram_range=(1, 2),
+        sublinear_tf=True
+    )
+    
+    tfidf_matrix = vectorizer.fit_transform([cleaned_jd])
+    feature_names = np.array(vectorizer.get_feature_names_out())
+    scores = tfidf_matrix.toarray()[0]
+    
+    df = pd.DataFrame({'keyword': feature_names, 'score': scores})
+    df = df[~df['keyword'].str.isnumeric()]
+    df = df[df['keyword'].str.len() >= 3]
+    
+    df_sorted = df.sort_values(by='score', ascending=False)
+    
+    extracted_keywords = []
+    for kw in df_sorted['keyword']:
+        if not any(kw in existing for existing in extracted_keywords):
+            extracted_keywords.append(kw)
+        if len(extracted_keywords) >= top_n:
+            break
+            
+    return extracted_keywords
 
 # Upload Section
 col1, col2 = st.columns(2)
@@ -162,7 +210,7 @@ if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=T
                 resume_text = clean_text(resume_raw_text)
                 jd_text = clean_text(job_description)
                 
-                # TF-IDF Vector Similarity
+                # Contextual Vector Similarity
                 vectorizer = TfidfVectorizer(
                     stop_words='english',
                     token_pattern=r'(?u)\b[a-zA-Z0-9\+\#\-\/]{2,}\b',
@@ -172,15 +220,14 @@ if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=T
                 tfidf_matrix = vectorizer.fit_transform([resume_text, jd_text])
                 raw_similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0] * 100
                 
-                # Tech Skill Extraction
-                resume_tech = extract_tech_skills(resume_raw_text)
-                jd_tech = extract_tech_skills(job_description)
+                # Dynamic Domain Competency Matching (Domain Agnostic)
+                extracted_competencies = extract_domain_competencies(job_description, top_n=20)
                 
-                matching_tech = resume_tech.intersection(jd_tech)
-                missing_tech = jd_tech - resume_tech
+                matching_skills = [kw for kw in extracted_competencies if kw in resume_text]
+                missing_skills = [kw for kw in extracted_competencies if kw not in matching_skills]
                 
-                tech_match_score = (len(matching_tech) / len(jd_tech) * 100) if len(jd_tech) > 0 else raw_similarity
-                final_ats_score = round((0.40 * raw_similarity) + (0.60 * tech_match_score), 1)
+                skill_match_score = (len(matching_skills) / len(extracted_competencies) * 100) if extracted_competencies else raw_similarity
+                final_ats_score = round((0.40 * raw_similarity) + (0.60 * skill_match_score), 1)
                 
                 # Color and Status Formatting
                 if final_ats_score >= 70:
@@ -196,32 +243,32 @@ if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=T
                     status_text = "🔴 Needs Tailoring — Significant Skill Gap"
                     badge_bg = "#3A1E1E"
 
-                # Generate Graph Image Buffer for Download in Tab 2
-                tech_summary_df = pd.DataFrame({
-                    'Category': ['Matching Tech Skills', 'Missing Tech Skills'],
-                    'Count': [len(matching_tech), len(missing_tech)]
+                # Generate Breakdown Chart Image Buffer for Download in Tab 2
+                chart_df = pd.DataFrame({
+                    'Category': ['Matching Skills', 'Missing Skills'],
+                    'Count': [len(matching_skills), len(missing_skills)]
                 })
                 fig, ax = plt.subplots(figsize=(7, 2.5))
-                sns.barplot(data=tech_summary_df, x='Count', y='Category', palette=['#2ECC71', '#E74C3C'], ax=ax)
-                ax.set_title("Tech Stack Coverage Ratio", fontsize=11)
-                ax.set_xlabel("Number of Skills")
+                sns.barplot(data=chart_df, x='Count', y='Category', palette=['#2ECC71', '#E74C3C'], ax=ax)
+                ax.set_title("Domain Competency Coverage Ratio", fontsize=11)
+                ax.set_xlabel("Number of Skills & Qualifications")
                 ax.set_ylabel("")
                 
                 img_buf = io.BytesIO()
                 fig.savefig(img_buf, format="png", bbox_inches="tight", dpi=300)
                 img_buf.seek(0)
 
-                # Generate Summary Report text for Tab 1
+                # Generate Text Report for Tab 1
                 smara_report_text = f"""SMARA REPORT
 ===========================
 Overall ATS Score: {final_ats_score}%
 Status: {status_text}
 
-TECH STACK MATCHES ({len(matching_tech)}):
-{', '.join(sorted(list(matching_tech))) if matching_tech else 'None'}
+MATCHING COMPETENCIES ({len(matching_skills)}):
+{', '.join(sorted(matching_skills)) if matching_skills else 'None'}
 
-MISSING TECH SKILLS ({len(missing_tech)}):
-{', '.join(sorted(list(missing_tech))) if missing_tech else 'None'}
+MISSING COMPETENCIES ({len(missing_skills)}):
+{', '.join(sorted(missing_skills)) if missing_skills else 'None'}
 """
 
                 # Generate SMARA AI Report if authenticated
@@ -232,11 +279,11 @@ MISSING TECH SKILLS ({len(missing_tech)}):
                     try:
                         prompt = f"""
                         You are SMARA AI, an executive ATS Resume Coach. Candidate scored {final_ats_score}% for this role.
-                        Missing Skills: {', '.join(missing_tech)}
+                        Missing Domain Skills/Competencies: {', '.join(missing_skills)}
                         Job Description: {job_description}
                         Candidate Resume: {resume_raw_text}
                         
-                        Provide 3 bullet-point recommendations to seamlessly incorporate the top missing tech skills into candidate project descriptions.
+                        Provide 3 strategic bullet-point recommendations to seamlessly incorporate the missing skills into candidate accomplishments.
                         """
                         response = gemini_client.models.generate_content(
                             model='gemini-flash-lite-latest',
@@ -249,8 +296,8 @@ SMARA AI REPORT
 Candidate ATS Score: {final_ats_score}%
 Status: {status_text}
 
-MISSING TECH SKILLS:
-{', '.join(sorted(list(missing_tech))) if missing_tech else 'None'}
+MISSING COMPETENCIES:
+{', '.join(sorted(missing_skills)) if missing_skills else 'None'}
 
 SMARA AI STRATEGIC RECOMMENDATIONS:
 -----------------------------------
@@ -259,13 +306,13 @@ SMARA AI STRATEGIC RECOMMENDATIONS:
                     except Exception as ai_exec_err:
                         ai_recommendation_text = f"Error generating recommendations: {ai_exec_err}"
 
-                # Save all calculated variables to session state
+                # Store all calculation variables in Session State
                 st.session_state['results'] = {
                     'final_ats_score': final_ats_score,
-                    'tech_match_score': tech_match_score,
+                    'skill_match_score': skill_match_score,
                     'raw_similarity': raw_similarity,
-                    'matching_tech': matching_tech,
-                    'missing_tech': missing_tech,
+                    'matching_skills': matching_skills,
+                    'missing_skills': missing_skills,
                     'score_color': score_color,
                     'status_text': status_text,
                     'badge_bg': badge_bg,
@@ -278,7 +325,7 @@ SMARA AI STRATEGIC RECOMMENDATIONS:
     else:
         st.error("Please upload a PDF resume and provide a target job description.")
 
-# Render UI from Session State to ensure download buttons do NOT refresh/wipe the dashboard
+# Render UI from Session State to prevent download buttons from wiping data
 if 'results' in st.session_state:
     res = st.session_state['results']
     
@@ -296,9 +343,9 @@ if 'results' in st.session_state:
     """, unsafe_allow_html=True)
 
     # Sub-Score Breakdown Expander
-    with st.expander("🔍 View Technical Score Breakdown"):
+    with st.expander("🔍 View Detailed Score Breakdown"):
         sc1, sc2 = st.columns(2)
-        sc1.metric("Tech Stack Match Rate", f"{round(res['tech_match_score'], 1)}%", help="Percentage of required technical skills present on your resume.")
+        sc1.metric("Domain Competency Match Rate", f"{round(res['skill_match_score'], 1)}%", help="Percentage of core required domain skills present on candidate resume.")
         sc2.metric("Contextual Vector Score", f"{round(res['raw_similarity'], 1)}%", help="TF-IDF keyword density similarity.")
 
     # Tabbed Interface
@@ -309,26 +356,26 @@ if 'results' in st.session_state:
         t_col1, t_col2 = st.columns(2)
         
         with t_col1:
-            st.markdown(f"#### 🎯 Matching Tech Skills ({len(res['matching_tech'])})")
-            if res['matching_tech']:
-                badges_html = "".join([f'<span class="badge-matched">✓ {skill.upper()}</span>' for skill in sorted(list(res['matching_tech']))])
+            st.markdown(f"#### 🎯 Matching Skills & Qualifications ({len(res['matching_skills'])})")
+            if res['matching_skills']:
+                badges_html = "".join([f'<span class="badge-matched">✓ {skill.upper()}</span>' for skill in sorted(res['matching_skills'])])
                 st.markdown(badges_html, unsafe_allow_html=True)
             else:
-                st.info("No direct technical skills matched.")
+                st.info("No direct skill matches detected.")
 
         with t_col2:
-            st.markdown(f"#### ⚠️ Missing Tech Skills ({len(res['missing_tech'])})")
-            if res['missing_tech']:
-                badges_html = "".join([f'<span class="badge-missing">✕ {skill.upper()}</span>' for skill in sorted(list(res['missing_tech']))])
+            st.markdown(f"#### ⚠️ Missing Skills & Qualifications ({len(res['missing_skills'])})")
+            if res['missing_skills']:
+                badges_html = "".join([f'<span class="badge-missing">✕ {skill.upper()}</span>' for skill in sorted(res['missing_skills'])])
                 st.markdown(badges_html, unsafe_allow_html=True)
             else:
-                st.success("All required technical skills are covered!")
+                st.success("All core required domain skills are present!")
 
         st.divider()
         st.download_button(
             label="📥 Download SMARA Report (.txt)",
             data=res['smara_report_text'],
-            file_name="SMARA_Report.txt",
+            file_name="SMARA Report.txt",
             mime="text/plain",
             use_container_width=True
         )
@@ -340,7 +387,7 @@ if 'results' in st.session_state:
         st.download_button(
             label="📥 Download SMARA Graph (.png)",
             data=res['graph_png_bytes'],
-            file_name="SMARA_Graph.png",
+            file_name="SMARA Graph.png",
             mime="image/png",
             use_container_width=True
         )
@@ -355,12 +402,12 @@ if 'results' in st.session_state:
                 st.download_button(
                     label="📥 Download SMARA AI Report (.txt)",
                     data=res['ai_report_text'],
-                    file_name="SMARA_AI_Report.txt",
+                    file_name="SMARA AI Report.txt",
                     mime="text/plain",
                     use_container_width=True
                 )
         else:
             if not user_api_key:
-                st.info("💡 API Key missing. Add `GEMINI_API_KEY` to `.env` or input it in the sidebar to generate the SMARA AI Report.")
+                st.info("💡 API Key missing. Add `GEMINI_API_KEY` to `.env` or enter it in the sidebar to generate the SMARA AI Report.")
             else:
                 st.error("❌ Authentication failed for Gemini API Key. Please verify key credentials in the sidebar.")
