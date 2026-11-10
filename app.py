@@ -109,7 +109,7 @@ def validate_gemini_key(key):
         client = genai.Client(api_key=key)
         # Lightweight authentication check on app load
         client.models.generate_content(
-            model='gemini-3.1-flash-lite',
+            model='gemini-3.5-flash-lite',
             contents='Ping'
         )
         return True, client, "Authentication Successful"
@@ -192,7 +192,7 @@ def extract_domain_competencies(jd_text, gemini_client):
     
     try:
         response = gemini_client.models.generate_content(
-            model='gemini-3.1-flash-lite',
+            model='gemini-3.5-flash-lite',
             contents=prompt
         )
         raw_skills = [s.strip() for s in response.text.split(',') if s.strip()]
@@ -314,7 +314,7 @@ MISSING COMPETENCIES ({len(missing_skills)}):
                         """
 
                         response = gemini_client.models.generate_content(
-                            model='gemini-3.1-flash-lite',
+                            model='gemini-3.5-flash-lite',
                             contents=prompt
                         )
                         ai_recommendation_text = response.text
