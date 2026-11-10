@@ -233,21 +233,34 @@ if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=T
                 resume_text = clean_text(resume_raw_text)
                 jd_text = clean_text(job_description)
                 
-                # Contextual Vector Similarity
-                vectorizer = TfidfVectorizer(
-                    stop_words='english',
-                    token_pattern=r'(?u)\b[a-zA-Z0-9\+\#\-\/]{2,}\b',
-                    ngram_range=(1, 1),
-                    sublinear_tf=True
-                )
-                tfidf_matrix = vectorizer.fit_transform([resume_text, jd_text])
-                raw_similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0] * 100
-                
-                # Replace the old extraction line with this:
-                extracted_competencies = extract_domain_competencies(job_description, gemini_client)
+            # Contextual Vector Similarity
+            vectorizer = TfidfVectorizer(
+                stop_words='english',
+                token_pattern=r'(?u)\b[a-zA-Z0-9\+\#\-\/]{2,}\b',
+                ngram_range=(1, 1),
+                sublinear_tf=True
+            )
+            tfidf_matrix = vectorizer.fit_transform([resume_text, jd_text])
+            raw_similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0] * 100
+            
+            # Dynamic Domain Competency Matching (Normalized Comparison)
+            extracted_competencies = extract_domain_competencies(job_description, gemini_client)
+            
+            # Normalize resume text identically for matching
+            resume_normalized = normalize_skill(resume_raw_text)
+            
+            matching_skills = []
+            missing_skills = []
 
-                matching_skills = [kw for kw in extracted_competencies if kw in resume_text]
-                missing_skills = [kw for kw in extracted_competencies if kw not in matching_skills]
+            for skill in extracted_competencies:
+                # Compare normalized skill against normalized resume text
+                clean_skill_target = normalize_skill(skill)
+                pattern = r'\b' + re.escape(clean_skill_target) + r'\b'
+                
+                if re.search(pattern, resume_normalized) or clean_skill_target in resume_normalized:
+                    matching_skills.append(skill)
+                else:
+                    missing_skills.append(skill)
                 
                 skill_match_score = (len(matching_skills) / len(extracted_competencies) * 100) if extracted_competencies else raw_similarity
                 final_ats_score = round((0.40 * raw_similarity) + (0.60 * skill_match_score), 1)
