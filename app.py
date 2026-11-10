@@ -145,16 +145,27 @@ def clean_text(text):
     text = re.sub(r'[^a-z0-9\+\#\-\/\s]', ' ', text)
     return " ".join(text.split())
 
+# Updated Helper: Normalize skills for flawless string matching
+def normalize_skill(skill_str):
+    # Remove dots, dashes, slashes, and extra spaces for uniform comparison
+    skill_str = skill_str.lower()
+    skill_str = re.sub(r'[\.\-\/]', ' ', skill_str)
+    return " ".join(skill_str.split())
+
+# Refined LLM Domain Competency Extraction Function
 def extract_domain_competencies(jd_text, gemini_client):
     if not gemini_client:
-        return [] # Fallback if API fails early
+        return []
     
     prompt = f"""
-    Extract the top 15-20 core hard skills, technical tools, frameworks, and specific methodologies from the following job description.
-    DO NOT include soft skills (e.g., 'collaborate', 'leadership').
-    DO NOT include generic action verbs or nouns (e.g., 'build', 'applications', 'develop', 'maintain', 'services').
-    DO NOT include company names, locations, or degrees.
-    Return ONLY a comma-separated list of the extracted skills in lowercase.
+    You are an expert technical ATS parser. Analyze the following Job Description and extract a balanced list of 15 to 20 key competencies.
+    
+    EXTRACTION RULES:
+    1. Include BOTH broad domain concepts (e.g., 'unit testing', 'rest apis', 'database management', 'agile', 'linux networking') AND specific tools/frameworks (e.g., 'java', 'react', 'aws', 'terraform', 'spring boot').
+    2. Normalize all framework/library names to plain terms (e.g., write 'react' instead of 'react.js', 'node' instead of 'node.js').
+    3. DO NOT include generic filler verbs ('build', 'maintain', 'collaborate', 'develop', 'support').
+    4. DO NOT include company names ('barclays'), locations ('bengaluru'), degrees, or soft skills.
+    5. Return ONLY a clean comma-separated list in lowercase.
     
     Job Description:
     {jd_text}
@@ -165,9 +176,11 @@ def extract_domain_competencies(jd_text, gemini_client):
             model='gemini-flash-lite-latest',
             contents=prompt
         )
-        # Parse the comma-separated string back into a Python list
-        skills = [skill.strip() for skill in response.text.split(',')]
-        return [s for s in skills if s]
+        # Parse comma-separated output
+        raw_skills = [s.strip() for s in response.text.split(',') if s.strip()]
+        # Standardize formatting
+        normalized_skills = list(dict.fromkeys([normalize_skill(s) for s in raw_skills]))
+        return normalized_skills
     except Exception as e:
         return []
     
