@@ -12,7 +12,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from google import genai
 
-# Load environment variables from .env file
+# Load environment variables from local .env file (if present)
 load_dotenv()
 
 # Page configuration
@@ -75,10 +75,28 @@ st.markdown("""
 st.title("⚡ SMARA - Smart Resume Assistant")
 st.caption("An Intelligent Applicant Tracking System with An AI-Powered Resume Tailor Assistant - Powered by SMARA AI")
 
+# Sanitized Secret Resolver: Checks .streamlit/secrets.toml -> .env -> system OS env
+def get_system_api_key():
+    # 1. Check Streamlit secrets (.streamlit/secrets.toml or Streamlit Cloud Secrets UI)
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            raw_key = str(st.secrets["GEMINI_API_KEY"]).strip().strip('"').strip("'")
+            if raw_key:
+                return raw_key
+    except Exception:
+        pass
+    
+    # 2. Check environment variables (.env fallback)
+    env_key = os.getenv("GEMINI_API_KEY", "").strip().strip('"').strip("'")
+    if env_key:
+        return env_key
+        
+    return ""
+
 # Sidebar Configuration & Dynamic BYOK Authentication Fallback
 st.sidebar.header("⚙️ AI Configuration")
 
-env_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+system_api_key = get_system_api_key()
 user_api_key = ""
 api_valid = False
 gemini_client = None
@@ -98,23 +116,25 @@ def validate_gemini_key(key):
     except Exception as e:
         return False, None, str(e)
 
-# 1. Attempt verification of system environment key first
-if env_api_key:
-    api_valid, gemini_client, auth_error_msg = validate_gemini_key(env_api_key)
+# 1. Attempt verification of system secrets key first
+if system_api_key:
+    api_valid, gemini_client, auth_error_msg = validate_gemini_key(system_api_key)
     if api_valid:
         st.sidebar.success("SMARA AI Enabled (System Key) ✅")
-        user_api_key = env_api_key
+        user_api_key = system_api_key
     else:
         st.sidebar.warning("⚠️ System Key Auth Failed")
+        st.sidebar.caption(f"Reason: {auth_error_msg[:80]}")
 
-# 2. BYOK Fallback: Allow manual key input if ENV key is missing or invalid
+# 2. BYOK Fallback: Allow manual key input if system key is missing or invalid
 if not api_valid:
     byok_key = st.sidebar.text_input("Gemini API Key (BYOK Fallback)", type="password")
     if byok_key:
-        api_valid, gemini_client, auth_error_msg = validate_gemini_key(byok_key.strip())
+        clean_byok = byok_key.strip().strip('"').strip("'")
+        api_valid, gemini_client, auth_error_msg = validate_gemini_key(clean_byok)
         if api_valid:
             st.sidebar.success("SMARA AI Enabled (User Key) ✅")
-            user_api_key = byok_key.strip()
+            user_api_key = clean_byok
         else:
             st.sidebar.error("❌ SMARA AI Auth Failed")
             st.sidebar.caption(f"Error: {auth_error_msg[:90]}")
@@ -126,7 +146,7 @@ if not api_valid:
         1. Go to [Google AI Studio](https://aistudio.google.com/).
         2. Sign in with your Google account.
         3. Click **"Get API key"** and then **"Create API key"**.
-        4. Copy your key and paste it above (or save it in `.env` as `GEMINI_API_KEY`).
+        4. Copy your key and paste it above (or save it in `.streamlit/secrets.toml` as `GEMINI_API_KEY`).
         """)
 
 # PDF Extraction Function
@@ -145,9 +165,8 @@ def clean_text(text):
     text = re.sub(r'[^a-z0-9\+\#\-\/\s]', ' ', text)
     return " ".join(text.split())
 
-# Updated Helper: Normalize skills for flawless string matching
+# Normalize skills for uniform string matching
 def normalize_skill(skill_str):
-    # Remove dots, dashes, slashes, and extra spaces for uniform comparison
     skill_str = skill_str.lower()
     skill_str = re.sub(r'[\.\-\/]', ' ', skill_str)
     return " ".join(skill_str.split())
@@ -176,42 +195,11 @@ def extract_domain_competencies(jd_text, gemini_client):
             model='gemini-flash-lite-latest',
             contents=prompt
         )
-        # Parse comma-separated output
         raw_skills = [s.strip() for s in response.text.split(',') if s.strip()]
-        # Standardize formatting
         normalized_skills = list(dict.fromkeys([normalize_skill(s) for s in raw_skills]))
         return normalized_skills
-    except Exception as e:
+    except Exception:
         return []
-    
-    base_stop_words = list(TfidfVectorizer(stop_words='english').get_stop_words())
-    custom_stop_words = list(set(base_stop_words + domain_noise))
-    
-    vectorizer = TfidfVectorizer(
-        stop_words=custom_stop_words,
-        token_pattern=r'(?u)\b[a-zA-Z0-9\+\#\-\/]{2,}\b',
-        ngram_range=(1, 2),
-        sublinear_tf=True
-    )
-    
-    tfidf_matrix = vectorizer.fit_transform([cleaned_jd])
-    feature_names = np.array(vectorizer.get_feature_names_out())
-    scores = tfidf_matrix.toarray()[0]
-    
-    df = pd.DataFrame({'keyword': feature_names, 'score': scores})
-    df = df[~df['keyword'].str.isnumeric()]
-    df = df[df['keyword'].str.len() >= 3]
-    
-    df_sorted = df.sort_values(by='score', ascending=False)
-    
-    extracted_keywords = []
-    for kw in df_sorted['keyword']:
-        if not any(kw in existing for existing in extracted_keywords):
-            extracted_keywords.append(kw)
-        if len(extracted_keywords) >= top_n:
-            break
-            
-    return extracted_keywords
 
 # Upload Section
 col1, col2 = st.columns(2)
@@ -233,34 +221,33 @@ if st.button("🚀 Analyze Compatibility", type="primary", use_container_width=T
                 resume_text = clean_text(resume_raw_text)
                 jd_text = clean_text(job_description)
                 
-            # Contextual Vector Similarity
-            vectorizer = TfidfVectorizer(
-                stop_words='english',
-                token_pattern=r'(?u)\b[a-zA-Z0-9\+\#\-\/]{2,}\b',
-                ngram_range=(1, 1),
-                sublinear_tf=True
-            )
-            tfidf_matrix = vectorizer.fit_transform([resume_text, jd_text])
-            raw_similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0] * 100
-            
-            # Dynamic Domain Competency Matching (Normalized Comparison)
-            extracted_competencies = extract_domain_competencies(job_description, gemini_client)
-            
-            # Normalize resume text identically for matching
-            resume_normalized = normalize_skill(resume_raw_text)
-            
-            matching_skills = []
-            missing_skills = []
-
-            for skill in extracted_competencies:
-                # Compare normalized skill against normalized resume text
-                clean_skill_target = normalize_skill(skill)
-                pattern = r'\b' + re.escape(clean_skill_target) + r'\b'
+                # Contextual Vector Similarity
+                vectorizer = TfidfVectorizer(
+                    stop_words='english',
+                    token_pattern=r'(?u)\b[a-zA-Z0-9\+\#\-\/]{2,}\b',
+                    ngram_range=(1, 1),
+                    sublinear_tf=True
+                )
+                tfidf_matrix = vectorizer.fit_transform([resume_text, jd_text])
+                raw_similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0] * 100
                 
-                if re.search(pattern, resume_normalized) or clean_skill_target in resume_normalized:
-                    matching_skills.append(skill)
-                else:
-                    missing_skills.append(skill)
+                # Dynamic Domain Competency Matching (Normalized Comparison)
+                extracted_competencies = extract_domain_competencies(job_description, gemini_client)
+                
+                # Normalize resume text identically for matching
+                resume_normalized = normalize_skill(resume_raw_text)
+                
+                matching_skills = []
+                missing_skills = []
+
+                for skill in extracted_competencies:
+                    clean_skill_target = normalize_skill(skill)
+                    pattern = r'\b' + re.escape(clean_skill_target) + r'\b'
+                    
+                    if re.search(pattern, resume_normalized) or clean_skill_target in resume_normalized:
+                        matching_skills.append(skill)
+                    else:
+                        missing_skills.append(skill)
                 
                 skill_match_score = (len(matching_skills) / len(extracted_competencies) * 100) if extracted_competencies else raw_similarity
                 final_ats_score = round((0.40 * raw_similarity) + (0.60 * skill_match_score), 1)
@@ -449,6 +436,6 @@ if 'results' in st.session_state:
                 )
         else:
             if not user_api_key:
-                st.info("💡 API Key missing. Add `GEMINI_API_KEY` to `.env` or enter it in the sidebar to generate the SMARA AI Report.")
+                st.info("💡 API Key missing. Add `GEMINI_API_KEY` to `.streamlit/secrets.toml` or enter it in the sidebar to generate the SMARA AI Report.")
             else:
                 st.error("❌ Authentication failed for Gemini API Key. Please verify key credentials in the sidebar.")
