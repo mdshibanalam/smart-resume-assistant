@@ -1,11 +1,9 @@
 streamlit
-scikit-learn
 pandas
 numpy
 seaborn
 matplotlib
-pdfplumper
-pytesseract
-pdf2image
-pillow
+pdfplumber
+scikit-learn
+google-genai
 python-dotenv
